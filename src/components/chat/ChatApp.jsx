@@ -1,16 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
+import { getChatComplete, getChatStatus, getText } from '../../lib/api/api';
 
 // Styled-components
 const ChatContainer = styled.div`
   display: flex;
   flex-direction: column;
-  height: 400px;
+  height: 500px;
   width: 402px;
   border: 1px solid #ddd;
   padding: 10px;
   background-color: #f9f9f9;
   overflow-y: scroll;
+  border-radius: 20px 20px 0 0;
+`;
+
+const Container = styled.div`
+  height: 600px;
+  display: flex;
+  flex-direction: column; 
 `;
 
 const MessageContainer = styled.div`
@@ -26,9 +34,9 @@ const Message = styled.div`
   padding: 8px 15px;
   border-radius: 15px;
   max-width: 60%;
-  word-wrap: break-word; /* 자동 줄 바꿈 */
-  white-space: pre-wrap; /* 개행 문자 처리 */
-  overflow-wrap: break-word; /* 긴 단어가 박스를 넘지 않도록 처리 */
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 `;
 
 const InputContainer = styled.div`
@@ -44,8 +52,8 @@ const Input = styled.input`
 `;
 
 const Button = styled.button`
-  width: 15%;
-  background-color: #8ab4f8;
+  width: 100px;
+  background-color: #1C4DCF;
   border: none;
   color: white;
   border-radius: 10px;
@@ -58,25 +66,35 @@ const ChatApp = () => {
   const [inputText, setInputText] = useState('');
   const [isComposing, setIsComposing] = useState(false);
   const chatEndRef = useRef(null);
+  const [id, setId] = useState("");
+  const [status, setStatus] = useState("IN_PROGRESS");
 
-  // 타임스탬프 추가 함수
   const getTimestamp = () => {
     const now = new Date();
     return `${now.getHours()}:${now.getMinutes()}`;
   };
 
-  // 메시지 전송 함수
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (inputText.trim()) {
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        { text: inputText, isUser: true, timestamp: getTimestamp() },
-      ]);
+      const newMessage = { text: inputText, isUser: true, timestamp: getTimestamp() };
+      setMessages((prevMessages) => [...prevMessages, newMessage]);
+
+      // 새로운 질문에 대해 ID와 상태 초기화
+      setId(""); 
+      setStatus("IN_PROGRESS");
+
+      try {
+        const res = await getChatStatus(inputText);
+        const newId = res.headers.location; // 새로운 ID 저장
+        setId(newId); // 상태 업데이트
+      } catch (error) {
+        console.error("Error sending message:", error);
+        throw new Error('메시지 전송에 실패했습니다.');
+      }
       setInputText('');
     }
   };
 
-  // Enter 키로 메시지 전송
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault();
@@ -84,7 +102,6 @@ const ChatApp = () => {
     }
   };
 
-  // Shift + Enter로 개행 처리
   const handleKeyUp = (e) => {
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
@@ -92,23 +109,19 @@ const ChatApp = () => {
     }
   };
 
-  // 조합문자 입력 시작
   const handleCompositionStart = () => {
     setIsComposing(true);
   };
 
-  // 조합문자 입력 끝
   const handleCompositionEnd = (e) => {
     setIsComposing(false);
     setInputText(e.target.value);
   };
 
-  // 메시지 스크롤 자동 내려가기
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 메시지 포맷팅 함수 (개행 문자 처리)
   const formatMessage = (text) => {
     return text.split('\n').map((line, index) => (
       <React.Fragment key={index}>
@@ -118,15 +131,54 @@ const ChatApp = () => {
     ));
   };
 
+  useEffect(() => {
+    let intervalId;
+
+    const fetchStatus = async () => {
+      if (id) {
+        try {
+          const response = await getChatComplete({ id });
+          const statusFromResponse = response.data;
+          console.log("Current Status:", statusFromResponse);
+          setStatus(statusFromResponse);
+
+          if (statusFromResponse === "COMPLETED") {
+            clearInterval(intervalId);
+
+            const chatId = response.request.responseURL.split("/").pop();
+            const responsekk = await getText({ id: chatId });
+              
+            console.log("Chat Response:", responsekk.data);
+            setMessages((prevMessages) => [
+              ...prevMessages,
+              { text: responsekk.data, isUser: false, timestamp: getTimestamp() },
+            ]);
+          }
+        } catch (error) {
+          console.error("Error fetching status:", error);
+          clearInterval(intervalId);
+        }
+      }
+    };
+
+    if (status === "IN_PROGRESS") {
+      intervalId = setInterval(fetchStatus, 500);
+    }
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [id, status]);
+
   return (
-    <div>
+    <Container>
       <ChatContainer>
         <MessageContainer>
           {messages.map((msg, index) => (
             <Message key={index} isUser={msg.isUser}>
               <div>
-                <strong style={{color:"gray"}}>{msg.isUser ? 'Me' : 'Other'}</strong> {' '}
-                <span style={{color:"lightgray"}}>{msg.timestamp}</span>
+                <strong style={{ color: "gray" }}>{msg.isUser ? 'Me' : 'DiDim'}</strong> {' '}
+                <span style={{ color: "lightgray" }}>{msg.timestamp}</span>
               </div>
               <div>{formatMessage(msg.text)}</div>
             </Message>
@@ -147,7 +199,7 @@ const ChatApp = () => {
         />
         <Button onClick={sendMessage}>전송</Button>
       </InputContainer>
-    </div>
+    </Container>
   );
 };
 
